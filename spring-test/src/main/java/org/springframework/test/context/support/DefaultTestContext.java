@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,11 +23,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.style.ToStringCreator;
+import org.springframework.lang.Nullable;
 import org.springframework.test.annotation.DirtiesContext.HierarchyMode;
 import org.springframework.test.context.CacheAwareContextLoaderDelegate;
 import org.springframework.test.context.MergedContextConfiguration;
 import org.springframework.test.context.TestContext;
 import org.springframework.util.Assert;
+import org.springframework.util.StringUtils;
 
 /**
  * Default implementation of the {@link TestContext} interface.
@@ -41,7 +43,7 @@ public class DefaultTestContext implements TestContext {
 
 	private static final long serialVersionUID = -5827157174866681233L;
 
-	private final Map<String, Object> attributes = new ConcurrentHashMap<>(0);
+	private final Map<String, Object> attributes = new ConcurrentHashMap<>(4);
 
 	private final CacheAwareContextLoaderDelegate cacheAwareContextLoaderDelegate;
 
@@ -49,37 +51,43 @@ public class DefaultTestContext implements TestContext {
 
 	private final Class<?> testClass;
 
+	@Nullable
 	private volatile Object testInstance;
 
+	@Nullable
 	private volatile Method testMethod;
 
+	@Nullable
 	private volatile Throwable testException;
 
 
 	/**
 	 * <em>Copy constructor</em> for creating a new {@code DefaultTestContext}
-	 * based on the immutable state and <em>attributes</em> of the supplied context.
-	 *
-	 * <p><em>Immutable state</em> includes all arguments supplied to
-	 * {@link #DefaultTestContext(Class, MergedContextConfiguration, CacheAwareContextLoaderDelegate)}.
+	 * based on the <em>attributes</em> and immutable state of the supplied context.
+	 * <p><em>Immutable state</em> includes all arguments supplied to the
+	 * {@linkplain #DefaultTestContext(Class, MergedContextConfiguration,
+	 * CacheAwareContextLoaderDelegate) standard constructor}.
+	 * @throws NullPointerException if the supplied {@code DefaultTestContext}
+	 * is {@code null}
 	 */
 	public DefaultTestContext(DefaultTestContext testContext) {
 		this(testContext.testClass, testContext.mergedContextConfiguration,
 			testContext.cacheAwareContextLoaderDelegate);
-		testContext.attributes.forEach(this.attributes::put);
+		this.attributes.putAll(testContext.attributes);
 	}
 
 	/**
 	 * Construct a new {@code DefaultTestContext} from the supplied arguments.
-	 * @param testClass the test class for this test context; never {@code null}
+	 * @param testClass the test class for this test context
 	 * @param mergedContextConfiguration the merged application context
-	 * configuration for this test context; never {@code null}
+	 * configuration for this test context
 	 * @param cacheAwareContextLoaderDelegate the delegate to use for loading
-	 * and closing the application context for this test context; never {@code null}
+	 * and closing the application context for this test context
 	 */
 	public DefaultTestContext(Class<?> testClass, MergedContextConfiguration mergedContextConfiguration,
 			CacheAwareContextLoaderDelegate cacheAwareContextLoaderDelegate) {
-		Assert.notNull(testClass, "testClass must not be null");
+
+		Assert.notNull(testClass, "Test Class must not be null");
 		Assert.notNull(mergedContextConfiguration, "MergedContextConfiguration must not be null");
 		Assert.notNull(cacheAwareContextLoaderDelegate, "CacheAwareContextLoaderDelegate must not be null");
 		this.testClass = testClass;
@@ -101,8 +109,13 @@ public class DefaultTestContext implements TestContext {
 		if (context instanceof ConfigurableApplicationContext) {
 			@SuppressWarnings("resource")
 			ConfigurableApplicationContext cac = (ConfigurableApplicationContext) context;
-			Assert.state(cac.isActive(), () -> "The ApplicationContext loaded for [" + mergedContextConfiguration
-					+ "] is not active. Ensure that the context has not been closed programmatically.");
+			Assert.state(cac.isActive(), () ->
+					"The ApplicationContext loaded for [" + mergedContextConfiguration +
+					"] is not active. This may be due to one of the following reasons: " +
+					"1) the context was closed programmatically by user code; " +
+					"2) the context was closed during parallel test execution either " +
+					"according to @DirtiesContext semantics or due to automatic eviction " +
+					"from the ContextCache due to a maximum cache size policy.");
 		}
 		return context;
 	}
@@ -115,7 +128,7 @@ public class DefaultTestContext implements TestContext {
 	 * that was supplied when this {@code TestContext} was constructed.
 	 * @see CacheAwareContextLoaderDelegate#closeContext
 	 */
-	public void markApplicationContextDirty(HierarchyMode hierarchyMode) {
+	public void markApplicationContextDirty(@Nullable HierarchyMode hierarchyMode) {
 		this.cacheAwareContextLoaderDelegate.closeContext(this.mergedContextConfiguration, hierarchyMode);
 	}
 
@@ -124,41 +137,51 @@ public class DefaultTestContext implements TestContext {
 	}
 
 	public final Object getTestInstance() {
-		return this.testInstance;
+		Object testInstance = this.testInstance;
+		Assert.state(testInstance != null, "No test instance");
+		return testInstance;
 	}
 
 	public final Method getTestMethod() {
-		return this.testMethod;
+		Method testMethod = this.testMethod;
+		Assert.state(testMethod != null, "No test method");
+		return testMethod;
 	}
 
+	@Override
+	@Nullable
 	public final Throwable getTestException() {
 		return this.testException;
 	}
 
-	public void updateState(Object testInstance, Method testMethod, Throwable testException) {
+	public void updateState(@Nullable Object testInstance, @Nullable Method testMethod, @Nullable Throwable testException) {
 		this.testInstance = testInstance;
 		this.testMethod = testMethod;
 		this.testException = testException;
 	}
 
 	@Override
-	public void setAttribute(String name, Object value) {
+	public void setAttribute(String name, @Nullable Object value) {
 		Assert.notNull(name, "Name must not be null");
-		if (value != null) {
-			this.attributes.put(name, value);
-		}
-		else {
-			removeAttribute(name);
+		synchronized (this.attributes) {
+			if (value != null) {
+				this.attributes.put(name, value);
+			}
+			else {
+				this.attributes.remove(name);
+			}
 		}
 	}
 
 	@Override
+	@Nullable
 	public Object getAttribute(String name) {
 		Assert.notNull(name, "Name must not be null");
 		return this.attributes.get(name);
 	}
 
 	@Override
+	@Nullable
 	public Object removeAttribute(String name) {
 		Assert.notNull(name, "Name must not be null");
 		return this.attributes.remove(name);
@@ -172,7 +195,9 @@ public class DefaultTestContext implements TestContext {
 
 	@Override
 	public String[] attributeNames() {
-		return this.attributes.keySet().stream().toArray(String[]::new);
+		synchronized (this.attributes) {
+			return StringUtils.toStringArray(this.attributes.keySet());
+		}
 	}
 
 

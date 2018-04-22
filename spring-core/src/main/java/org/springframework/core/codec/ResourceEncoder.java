@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,15 +17,17 @@
 package org.springframework.core.codec;
 
 import java.io.IOException;
-import java.io.InputStream;
+import java.util.Map;
 
 import reactor.core.publisher.Flux;
 
 import org.springframework.core.ResolvableType;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferFactory;
 import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.MimeType;
 import org.springframework.util.MimeTypeUtils;
@@ -49,24 +51,36 @@ public class ResourceEncoder extends AbstractSingleValueEncoder<Resource> {
 	}
 
 	public ResourceEncoder(int bufferSize) {
-		super(MimeTypeUtils.ALL);
+		super(MimeTypeUtils.APPLICATION_OCTET_STREAM, MimeTypeUtils.ALL);
 		Assert.isTrue(bufferSize > 0, "'bufferSize' must be larger than 0");
 		this.bufferSize = bufferSize;
 	}
 
 
 	@Override
-	public boolean canEncode(ResolvableType elementType, MimeType mimeType, Object... hints) {
-		Class<?> clazz = elementType.getRawClass();
-		return (super.canEncode(elementType, mimeType, hints) && Resource.class.isAssignableFrom(clazz));
+	public boolean canEncode(ResolvableType elementType, @Nullable MimeType mimeType) {
+		Class<?> clazz = elementType.resolve(Object.class);
+		return (super.canEncode(elementType, mimeType) && Resource.class.isAssignableFrom(clazz));
 	}
 
 	@Override
 	protected Flux<DataBuffer> encode(Resource resource, DataBufferFactory dataBufferFactory,
-			ResolvableType type, MimeType mimeType, Object... hints) throws IOException {
+			ResolvableType type, @Nullable MimeType mimeType, @Nullable Map<String, Object> hints) {
 
-		InputStream is = resource.getInputStream();
-		return DataBufferUtils.read(is, dataBufferFactory, bufferSize);
+		return DataBufferUtils.read(resource, dataBufferFactory, this.bufferSize);
+	}
+
+	@Override
+	public Long getContentLength(Resource resource, @Nullable MimeType mimeType) {
+		// Don't consume InputStream...
+		if (InputStreamResource.class != resource.getClass()) {
+			try {
+				return resource.contentLength();
+			}
+			catch (IOException ignored) {
+			}
+		}
+		return null;
 	}
 
 }

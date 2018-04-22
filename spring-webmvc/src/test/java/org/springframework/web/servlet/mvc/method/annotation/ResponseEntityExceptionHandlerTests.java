@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,6 +50,7 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.context.support.StaticWebApplicationContext;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.NoHandlerFoundException;
@@ -198,6 +199,11 @@ public class ResponseEntityExceptionHandlerTests {
 	}
 
 	@Test
+	public void asyncRequestTimeoutException() {
+		testException(new AsyncRequestTimeoutException());
+	}
+
+	@Test
 	public void controllerAdvice() throws Exception {
 		StaticWebApplicationContext cxt = new StaticWebApplicationContext();
 		cxt.registerSingleton("exceptionHandler", ApplicationExceptionHandler.class);
@@ -232,9 +238,6 @@ public class ResponseEntityExceptionHandlerTests {
 	}
 
 
-	private static class TestController {
-	}
-
 	@ControllerAdvice
 	private static class ApplicationExceptionHandler extends ResponseEntityExceptionHandler {
 
@@ -247,7 +250,6 @@ public class ResponseEntityExceptionHandlerTests {
 		}
 	}
 
-	@SuppressWarnings("unused")
 	void handle(String arg) {
 	}
 
